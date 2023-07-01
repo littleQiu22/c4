@@ -43,18 +43,24 @@ enum { LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LC  ,SI  ,SC  ,PSH ,
 enum { CHAR, INT, PTR };
 
 // identifier offsets (since we can't create an ident struct)
+// Every 8 int describe an identifier
 enum { Tk, Hash, Name, Class, Type, Val, HClass, HType, HVal, Idsz };
 
+// Read a token. After one round of the function, every varibale means:
+// tk: the type of the token (Id, Num, etc)
 void next()
 {
   char *pp;
-
+  // While not counter null character in source, then read character one by one until get a defined token
   while (tk = *p) {
     ++p;
+    // If src flag is in calling command, then print every line in source code 
     if (tk == '\n') {
       if (src) {
+        // Print source code
         printf("%d: %.*s", line, p - lp, lp);
         lp = p;
+        // Print assembly code. pointer le and e point to last printed instruction and currently newest instruction
         while (le < e) {
           printf("%8.4s", &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LC  ,SI  ,SC  ,PSH ,"
                            "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,"
@@ -64,19 +70,23 @@ void next()
       }
       ++line;
     }
+    // Counter "#include <xxx>". Just passing this line by moving pointer and continue read token 
     else if (tk == '#') {
       while (*p != 0 && *p != '\n') ++p;
     }
+    // Counter "[a-zA-Z_](a-zA-Z0-9_)*" identifier or keyword
     else if ((tk >= 'a' && tk <= 'z') || (tk >= 'A' && tk <= 'Z') || tk == '_') {
       pp = p - 1;
       while ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_')
-        tk = tk * 147 + *p++;
-      tk = (tk << 6) + (p - pp);
+        tk = tk * 147 + *p++; // tk in this place is the hash code of identifier
+      tk = (tk << 6) + (p - pp); // bit shifting is also for hashing 
       id = sym;
       while (id[Tk]) {
         if (tk == id[Hash] && !memcmp((char *)id[Name], pp, p - pp)) { tk = id[Tk]; return; }
         id = id + Idsz;
       }
+      // The hash of identifier is the value of previous tk which is calculated by a series of hashing operation.
+      // The name of identifier is to recorded as its first char's address. Since if we know the address, we can  
       id[Name] = (int)pp;
       id[Hash] = tk;
       tk = id[Tk] = Id;
@@ -336,6 +346,7 @@ int main(int argc, char **argv)
   int *pc, *sp, *bp, a, cycle; // vm registers
   int i, *t; // temps
 
+  // pick flag from usage "c4 [-s] [-d] file ..."; src flag means
   --argc; ++argv;
   if (argc > 0 && **argv == '-' && (*argv)[1] == 's') { src = 1; --argc; ++argv; }
   if (argc > 0 && **argv == '-' && (*argv)[1] == 'd') { debug = 1; --argc; ++argv; }
@@ -343,6 +354,7 @@ int main(int argc, char **argv)
 
   if ((fd = open(*argv, 0)) < 0) { printf("could not open(%s)\n", *argv); return -1; }
 
+  // acclocate memory to 4 area: identifier's symbol table, code text, global data and operation stack
   poolsz = 256*1024; // arbitrary size
   if (!(sym = malloc(poolsz))) { printf("could not malloc(%d) symbol area\n", poolsz); return -1; }
   if (!(le = e = malloc(poolsz))) { printf("could not malloc(%d) text area\n", poolsz); return -1; }
