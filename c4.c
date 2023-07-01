@@ -52,6 +52,7 @@ void next()
 {
   char *pp;
   // While not counter null character in source, then read character one by one until get a defined token
+  // tk can be used as first character, hash of identifier or token type
   while (tk = *p) {
     ++p;
     // If src flag is in calling command, then print every line in source code 
@@ -70,28 +71,34 @@ void next()
       }
       ++line;
     }
-    // Counter "#include <xxx>". Just passing this line by moving pointer and continue read token 
+    // Counter #include <xxx>. Just passing this line by moving pointer and continue read token 
     else if (tk == '#') {
       while (*p != 0 && *p != '\n') ++p;
     }
-    // Counter "[a-zA-Z_](a-zA-Z0-9_)*" identifier or keyword
+    // Counter [a-zA-Z_][a-zA-Z0-9_]* identifier or keyword
     else if ((tk >= 'a' && tk <= 'z') || (tk >= 'A' && tk <= 'Z') || tk == '_') {
       pp = p - 1;
       while ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_')
         tk = tk * 147 + *p++; // tk in this place is the hash code of identifier
       tk = (tk << 6) + (p - pp); // bit shifting is also for hashing 
       id = sym;
+      // Search symbol table to see whether the identifier is already stored.
+      // If yes, let identifier pointer id point to it
+      // If not, add the identifier in the list and let identifier pointer id point to it
       while (id[Tk]) {
         if (tk == id[Hash] && !memcmp((char *)id[Name], pp, p - pp)) { tk = id[Tk]; return; }
         id = id + Idsz;
       }
       // The hash of identifier is the value of previous tk which is calculated by a series of hashing operation.
-      // The name of identifier is to recorded as its first char's address. Since if we know the address, we can  
+      // The name of identifier is its first char's address. Since if we know the address, we can
+      // compare it with other string to check whether they are the same identifier.
+      // The type of token is identifier
       id[Name] = (int)pp;
       id[Hash] = tk;
       tk = id[Tk] = Id;
       return;
     }
+    // Counter [1-9][0-9]* | 0[xX][0-9a-fA-F]* | 0[0-7]*
     else if (tk >= '0' && tk <= '9') {
       if (ival = tk - '0') { while (*p >= '0' && *p <= '9') ival = ival * 10 + *p++ - '0'; }
       else if (*p == 'x' || *p == 'X') {
@@ -102,6 +109,7 @@ void next()
       tk = Num;
       return;
     }
+    // Counter // or /(~/), the former is comment and need pass whole line, the later is division
     else if (tk == '/') {
       if (*p == '/') {
         ++p;
@@ -112,9 +120,13 @@ void next()
         return;
       }
     }
+    // Counter character or string
     else if (tk == '\'' || tk == '"') {
       pp = data;
+      // If the token is just a char, then store char number in ival
+      // If the token is a string, then read char of string to memory pointed by data, and let ival store the address of string's first char 
       while (*p != 0 && *p != tk) {
+        // Escape char '\n' should be treated specially since it means just a single number but occupy two word in source code 
         if ((ival = *p++) == '\\') {
           if ((ival = *p++) == 'n') ival = '\n';
         }
