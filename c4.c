@@ -389,7 +389,7 @@ int main(int argc, char **argv)
   // Type attribute indicates the specific type when the class of the identifier is known, including int, char or pointer
   // Val attribute indicates the special value when the type of the identifier is known, which is assigned literal value
   next(); id[Tk] = Char; // handle void type
-  next(); idmain = id; // keep track of main
+  next(); idmain = id; // keep identifier track of main
 
   // Read text from file and write the content to where pointed by p
   if (!(lp = p = malloc(poolsz))) { printf("could not malloc(%d) source area\n", poolsz); return -1; }
@@ -420,33 +420,38 @@ int main(int argc, char **argv)
             i = ival;
             next();
           }
-          id[Class] = Num; id[Type] = INT; id[Val] = i++;
+          id[Class] = Num; id[Type] = INT; id[Val] = i++; // class of identifier in enum is Num, type is INT, and the value is auto incrementing int or assinged value 
           if (tk == ',') next();
         }
         next();
       }
     }
+    // Parse function, local variable and global variable declaration
+    // Since in c standard, everything should be declared before using, so if we don't see an identifier token now, then there must be bad declaration
     while (tk != ';' && tk != '}') {
       ty = bt;
-      while (tk == Mul) { next(); ty = ty + PTR; }
+      while (tk == Mul) { next(); ty = ty + PTR; } // allowed type of data: char, int, nested char pointer, nested int pointer, which is represented by long long ty 
       if (tk != Id) { printf("%d: bad global declaration\n", line); return -1; }
       if (id[Class]) { printf("%d: duplicate global definition\n", line); return -1; }
       next();
       id[Type] = ty;
-      if (tk == '(') { // function
+      if (tk == '(') { // The identifier token is to represent function
         id[Class] = Fun;
-        id[Val] = (int)(e + 1);
+        id[Val] = (int)(e + 1); // The instruction code will be placed beginning at memory pointed by (e+1)
         next(); i = 0;
         while (tk != ')') {
+          // add arguments declaration in function to symbol table
           ty = INT;
           if (tk == Int) next();
           else if (tk == Char) { next(); ty = CHAR; }
           while (tk == Mul) { next(); ty = ty + PTR; }
           if (tk != Id) { printf("%d: bad parameter declaration\n", line); return -1; }
+          // If the same local identifier is in symbol table, then there is duplicate. But a same global identifier is allowed.
           if (id[Class] == Loc) { printf("%d: duplicate parameter definition\n", line); return -1; }
+          // Transfer Class, Type, Val attribute of identifier in global context (if it is already in global context) to HClass, HType, HVal to recover Class, Type, Val when the function finishes
           id[HClass] = id[Class]; id[Class] = Loc;
           id[HType]  = id[Type];  id[Type] = ty;
-          id[HVal]   = id[Val];   id[Val] = i++;
+          id[HVal]   = id[Val];   id[Val] = i++; // The Val attribute of argument identifier is its order
           next();
           if (tk == ',') next();
         }
