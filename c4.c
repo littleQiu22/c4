@@ -43,11 +43,15 @@ enum { LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LC  ,SI  ,SC  ,PSH ,
 enum { CHAR, INT, PTR };
 
 // identifier offsets (since we can't create an ident struct)
-// Every 8 int describe an identifier
+// Every 9 ints describe an identifier
 enum { Tk, Hash, Name, Class, Type, Val, HClass, HType, HVal, Idsz };
 
-// Read a token. After one round of the function, every varibale means:
-// tk: the type of the token (Id, Num, etc)
+// Read a token. After execution of the function, every varibale means:
+// tk: the type of the token (Id, Num, etc), which is defined by enum or just char literal
+// p: point to next unread char in source code
+// ival: 1. the value of number or char; 2. the address of string
+// id: point to current identifier in symbol tabale (every identifier is described by 9 ints in the table)
+// sym: this pointer is not changed
 void next()
 {
   char *pp;
@@ -71,11 +75,11 @@ void next()
       }
       ++line;
     }
-    // Counter #include <xxx>. Just passing this line by moving pointer and continue read token 
+    // Encounter #include <xxx>. Just passing this line by moving pointer and continue read token 
     else if (tk == '#') {
       while (*p != 0 && *p != '\n') ++p;
     }
-    // Counter [a-zA-Z_][a-zA-Z0-9_]* identifier or keyword
+    // Encounter [a-zA-Z_][a-zA-Z0-9_]* identifier or keyword
     else if ((tk >= 'a' && tk <= 'z') || (tk >= 'A' && tk <= 'Z') || tk == '_') {
       pp = p - 1;
       while ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_')
@@ -98,7 +102,7 @@ void next()
       tk = id[Tk] = Id;
       return;
     }
-    // Counter [1-9][0-9]* | 0[xX][0-9a-fA-F]* | 0[0-7]*
+    // Encounter [1-9][0-9]* | 0[xX][0-9a-fA-F]* | 0[0-7]*
     else if (tk >= '0' && tk <= '9') {
       if (ival = tk - '0') { while (*p >= '0' && *p <= '9') ival = ival * 10 + *p++ - '0'; }
       else if (*p == 'x' || *p == 'X') {
@@ -109,7 +113,7 @@ void next()
       tk = Num;
       return;
     }
-    // Counter // or /(~/), the former is comment and need pass whole line, the later is division
+    // Encounter // or /(~/), the former is comment and need pass whole line, the later is division
     else if (tk == '/') {
       if (*p == '/') {
         ++p;
@@ -120,7 +124,7 @@ void next()
         return;
       }
     }
-    // Counter character or string
+    // Encounter character or string
     else if (tk == '\'' || tk == '"') {
       pp = data;
       // If the token is just a char, then store char number in ival
@@ -136,20 +140,20 @@ void next()
       if (tk == '"') ival = (int)pp; else tk = Num;
       return;
     }
-    else if (tk == '=') { if (*p == '=') { ++p; tk = Eq; } else tk = Assign; return; }
-    else if (tk == '+') { if (*p == '+') { ++p; tk = Inc; } else tk = Add; return; }
-    else if (tk == '-') { if (*p == '-') { ++p; tk = Dec; } else tk = Sub; return; }
-    else if (tk == '!') { if (*p == '=') { ++p; tk = Ne; } return; }
-    else if (tk == '<') { if (*p == '=') { ++p; tk = Le; } else if (*p == '<') { ++p; tk = Shl; } else tk = Lt; return; }
-    else if (tk == '>') { if (*p == '=') { ++p; tk = Ge; } else if (*p == '>') { ++p; tk = Shr; } else tk = Gt; return; }
-    else if (tk == '|') { if (*p == '|') { ++p; tk = Lor; } else tk = Or; return; }
-    else if (tk == '&') { if (*p == '&') { ++p; tk = Lan; } else tk = And; return; }
+    else if (tk == '=') { if (*p == '=') { ++p; tk = Eq; } else tk = Assign; return; } // = or ==
+    else if (tk == '+') { if (*p == '+') { ++p; tk = Inc; } else tk = Add; return; } // + or ++
+    else if (tk == '-') { if (*p == '-') { ++p; tk = Dec; } else tk = Sub; return; } // - or --
+    else if (tk == '!') { if (*p == '=') { ++p; tk = Ne; } return; } // ! or !=
+    else if (tk == '<') { if (*p == '=') { ++p; tk = Le; } else if (*p == '<') { ++p; tk = Shl; } else tk = Lt; return; } // <= or << or <
+    else if (tk == '>') { if (*p == '=') { ++p; tk = Ge; } else if (*p == '>') { ++p; tk = Shr; } else tk = Gt; return; } // >= or >> or >
+    else if (tk == '|') { if (*p == '|') { ++p; tk = Lor; } else tk = Or; return; } // || or |
+    else if (tk == '&') { if (*p == '&') { ++p; tk = Lan; } else tk = And; return; } // && or &
     else if (tk == '^') { tk = Xor; return; }
     else if (tk == '%') { tk = Mod; return; }
     else if (tk == '*') { tk = Mul; return; }
     else if (tk == '[') { tk = Brak; return; }
     else if (tk == '?') { tk = Cond; return; }
-    else if (tk == '~' || tk == ';' || tk == '{' || tk == '}' || tk == '(' || tk == ')' || tk == ']' || tk == ',' || tk == ':') return;
+    else if (tk == '~' || tk == ';' || tk == '{' || tk == '}' || tk == '(' || tk == ')' || tk == ']' || tk == ',' || tk == ':') return; // left token type which is not defined by enum 
   }
 }
 
@@ -381,21 +385,26 @@ int main(int argc, char **argv)
       "open read close printf malloc free memset memcmp exit void main";
   i = Char; while (i <= While) { next(); id[Tk] = i++; } // add keywords to symbol table
   i = OPEN; while (i <= EXIT) { next(); id[Class] = Sys; id[Type] = INT; id[Val] = i++; } // add library to symbol table
+  // Class attribute indicates whether the identifier means a number, library call, function, local variable and global variable
+  // Type attribute indicates the specific type when the class of the identifier is known, including int, char or pointer
+  // Val attribute indicates the special value when the type of the identifier is known, which is assigned literal value
   next(); id[Tk] = Char; // handle void type
   next(); idmain = id; // keep track of main
 
+  // Read text from file and write the content to where pointed by p
   if (!(lp = p = malloc(poolsz))) { printf("could not malloc(%d) source area\n", poolsz); return -1; }
   if ((i = read(fd, p, poolsz-1)) <= 0) { printf("read() returned %d\n", i); return -1; }
-  p[i] = 0;
+  p[i] = 0; // Add null character 0 to form a valid c-string
   close(fd);
 
-  // parse declarations
+  // Parse declarations of all identifiers to fill symbol table 
   line = 1;
   next();
   while (tk) {
     bt = INT; // basetype
     if (tk == Int) next();
     else if (tk == Char) { next(); bt = CHAR; }
+    // Parse identifiers defind in enum syntax
     else if (tk == Enum) {
       next();
       if (tk != '{') next();
