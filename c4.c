@@ -35,6 +35,16 @@ enum {
 };
 
 // opcodes
+// opcode usage:
+// LEA (Load Effective Address): get a address calculated by basic pointer + deferenced value pointed by program pointer. The calculated address will be stored in virtual register "a", you can regard it as "eax"(the virtual register is actually a int in c language). Its specification is a = (int)(bp + *pc++)
+// IMM (Immediate Value): get a deferenced value pointed by program pointer and store it in virtual register "a". Its specification is a = *pc++
+// JMP (Unconditional Jump): let the program pointer point to deferenced value (a new address of next instruction) pointed by current program pointer. Its specification is pc = (int *)*pc
+// JSP (Jump to Subroutine):  1. record next instruction address of calling procedure in stack memory 2. let the program pointer point to deferenced value (a new address of subroutine instruction) pointed by current program pointer. Its specification is *--sp = (int)(pc + 1); pc = (int *)*pc
+// BZ (Branch if Zero): let the program pointer point to defereced value ( a new address of instruction) pointed by current program pointer if data in register "a" is zero. Its specification is pc = a ? pc + 1 : (int *)*pc
+// BNZ (Branch if Not Zero): let the program pointer point to defereced value ( a new address of instruction) pointed by current program pointer if data in register "a" is Not zero. Its specification is pc = a ? (int *)*pc: pc + 1
+// ENT (Enter - Used to setup stack frame for a function): Setup a stack frame by 1. Store current base pointer of calling procedure in memory pointed by stack pointer to recover after this function finished. 2. Let new base pointer of a called frame be the current stack pointer. 3. adjust stack pointer to produce memory space to store local variable in later. Its specification is *--sp = (int)bp; bp = sp; sp = sp - *pc++
+// ADJ (Adjust - Used to adjust the stack pointer quickly): backward stack pointer to deaccloate the memory of frame (often used when need local memory deallocation). Its specification is sp = sp + *pc++
+// LEV (Leave - Used to clean up the stack frame and return from a function.): 
 enum { LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LC  ,SI  ,SC  ,PSH ,
        OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,
        OPEN,READ,CLOS,PRTF,MALC,FREE,MSET,MCMP,EXIT };
@@ -47,7 +57,7 @@ enum { CHAR, INT, PTR };
 enum { Tk, Hash, Name, Class, Type, Val, HClass, HType, HVal, Idsz };
 
 // Read a token. After execution of the function, every varibale means:
-// tk: the type of the token (Id, Num, etc), which is defined by enum or just char literal
+// tk: the type of the token (Id, Num, etc)
 // p: point to next unread char in source code
 // ival: 1. the value of number or char; 2. the address of string
 // id: point to current identifier in symbol tabale (every identifier is described by 9 ints in the table)
@@ -451,7 +461,7 @@ int main(int argc, char **argv)
           // Transfer Class, Type, Val attribute of identifier in global context (if it is already in global context) to HClass, HType, HVal to recover Class, Type, Val when the function finishes
           id[HClass] = id[Class]; id[Class] = Loc;
           id[HType]  = id[Type];  id[Type] = ty;
-          id[HVal]   = id[Val];   id[Val] = i++; // The Val attribute of argument identifier is its order
+          id[HVal]   = id[Val];   id[Val] = i++; // The Val attribute of argument identifier is its offset
           next();
           if (tk == ',') next();
         }
@@ -459,6 +469,7 @@ int main(int argc, char **argv)
         if (tk != '{') { printf("%d: bad function definition\n", line); return -1; }
         loc = ++i;
         next();
+        // Encounter local variable declaration
         while (tk == Int || tk == Char) {
           bt = (tk == Int) ? INT : CHAR;
           next();
@@ -476,9 +487,11 @@ int main(int argc, char **argv)
           next();
         }
         *++e = ENT; *++e = i - loc;
+        // Get the instruction of the function
         while (tk != '}') stmt();
         *++e = LEV;
         id = sym; // unwind symbol table locals
+        // After the instruction of a function finished, recover covered variable.
         while (id[Tk]) {
           if (id[Class] == Loc) {
             id[Class] = id[HClass];
@@ -488,9 +501,9 @@ int main(int argc, char **argv)
           id = id + Idsz;
         }
       }
-      else {
+      else { // Encounter global variable declaration
         id[Class] = Glo;
-        id[Val] = (int)data;
+        id[Val] = (int)data; // Val attribtute of global variable is its address. The value of global variable occupies memory space like a int
         data = data + sizeof(int);
       }
       if (tk == ',') next();
@@ -501,7 +514,7 @@ int main(int argc, char **argv)
   if (!(pc = (int *)idmain[Val])) { printf("main() not defined\n"); return -1; }
   if (src) return 0;
 
-  // setup stack
+  // Setup stack from high address to low address 
   bp = sp = (int *)((int)sp + poolsz);
   *--sp = EXIT; // call exit if main returns
   *--sp = PSH; t = sp;
