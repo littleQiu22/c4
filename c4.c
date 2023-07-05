@@ -92,7 +92,7 @@ void next()
       }
       ++line;
     }
-    // Encounter #include <xxx>. Just passing this line by moving pointer and continue read token 
+    // Encounter #xxx. Just passing this line by moving pointer and continue read token 
     else if (tk == '#') {
       while (*p != 0 && *p != '\n') ++p;
     }
@@ -180,12 +180,15 @@ void expr(int lev)
   int t, *d;
 
   if (!tk) { printf("%d: unexpected eof in expression\n", line); exit(-1); }
+  // Encounter number token
   else if (tk == Num) { *++e = IMM; *++e = ival; next(); ty = INT; }
+  // Encounter string token
   else if (tk == '"') {
     *++e = IMM; *++e = ival; next();
     while (tk == '"') next();
-    data = (char *)((int)data + sizeof(int) & -sizeof(int)); ty = PTR;
+    data = (char *)((int)data + sizeof(int) & -sizeof(int)); ty = PTR; // aligin memory
   }
+  // Encounter sizeof token, sizeof(int/char/pointer)
   else if (tk == Sizeof) {
     next(); if (tk == '(') next(); else { printf("%d: open paren expected in sizeof\n", line); exit(-1); }
     ty = INT; if (tk == Int) next(); else if (tk == Char) { next(); ty = CHAR; }
@@ -194,27 +197,34 @@ void expr(int lev)
     *++e = IMM; *++e = (ty == CHAR) ? sizeof(char) : sizeof(int);
     ty = INT;
   }
+  // Encounter identifier token
   else if (tk == Id) {
     d = id; next();
+    // the identifier is function
     if (tk == '(') {
       next();
       t = 0;
+      // push value of arugument of function to stack
       while (tk != ')') { expr(Assign); *++e = PSH; ++t; if (tk == ',') next(); }
       next();
+      // if it is system function, add the function index (store in d[Val]) to emitted code, the function index will guide which system function be triggered 
       if (d[Class] == Sys) *++e = d[Val];
       else if (d[Class] == Fun) { *++e = JSR; *++e = d[Val]; }
       else { printf("%d: bad function call\n", line); exit(-1); }
-      if (t) { *++e = ADJ; *++e = t; }
+      if (t) { *++e = ADJ; *++e = t; } // clear stack occupied by argument to call function
       ty = d[Type];
     }
+    // the identifier is enum number
     else if (d[Class] == Num) { *++e = IMM; *++e = d[Val]; ty = INT; }
+    // the identifier is local or global variable
     else {
-      if (d[Class] == Loc) { *++e = LEA; *++e = loc - d[Val]; }
+      if (d[Class] == Loc) { *++e = LEA; *++e = loc - d[Val]; } // the address of local variable is bp+(loc-d[Val])=bp-ordinal number of this local vriable, since loc is (amount of arugment + 1 ) of the function current expression belongs to and d[Val] is (loc+which ordinal number of this local variable).
       else if (d[Class] == Glo) { *++e = IMM; *++e = d[Val]; }
       else { printf("%d: undefined variable\n", line); exit(-1); }
       *++e = ((ty = d[Type]) == CHAR) ? LC : LI;
     }
   }
+  // Encounter parenthesis which has highest priority
   else if (tk == '(') {
     next();
     if (tk == Int || tk == Char) {
@@ -349,6 +359,7 @@ void stmt()
     }
     *b = (int)(e + 1);
   }
+  // Encounter while statement
   else if (tk == While) {
     next();
     a = e + 1;
@@ -357,15 +368,17 @@ void stmt()
     if (tk == ')') next(); else { printf("%d: close paren expected\n", line); exit(-1); }
     *++e = BZ; b = ++e;
     stmt();
-    *++e = JMP; *++e = (int)a;
-    *b = (int)(e + 1);
+    *++e = JMP; *++e = (int)a; // generate jump-to-address of JMP instruction 
+    *b = (int)(e + 1); // generate instruction address of BZ 
   }
+  // Encounter return statement
   else if (tk == Return) {
     next();
     if (tk != ';') expr(Assign);
     *++e = LEV;
     if (tk == ';') next(); else { printf("%d: semicolon expected\n", line); exit(-1); }
   }
+  // Encounter block statement
   else if (tk == '{') {
     next();
     while (tk != '}') stmt();
@@ -374,6 +387,7 @@ void stmt()
   else if (tk == ';') {
     next();
   }
+  // Encounter expression statement
   else {
     expr(Assign);
     if (tk == ';') next(); else { printf("%d: semicolon expected\n", line); exit(-1); }
@@ -461,7 +475,7 @@ int main(int argc, char **argv)
       id[Type] = ty;
       if (tk == '(') { // The identifier token is to represent function
         id[Class] = Fun;
-        id[Val] = (int)(e + 1); // The instruction code will be placed beginning at memory pointed by (e+1)
+        id[Val] = (int)(e + 1); // The instruction of function will be placed at memory pointed by (e+1)
         next(); i = 0;
         while (tk != ')') {
           // add arguments declaration in function to symbol table
@@ -481,7 +495,7 @@ int main(int argc, char **argv)
         }
         next();
         if (tk != '{') { printf("%d: bad function definition\n", line); return -1; }
-        loc = ++i;
+        loc = ++i; // loc is amount of arugument+1 
         next();
         // Encounter local variable declaration
         while (tk == Int || tk == Char) {
@@ -500,7 +514,7 @@ int main(int argc, char **argv)
           }
           next();
         }
-        *++e = ENT; *++e = i - loc;
+        *++e = ENT; *++e = i - loc; // i-loc is the amount of local variable
         // Get the instruction of statements
         while (tk != '}') stmt();
         *++e = LEV;
