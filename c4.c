@@ -44,7 +44,14 @@ enum {
 // BNZ (Branch if Not Zero): let the program pointer point to defereced value ( a new address of instruction) pointed by current program pointer if data in register "a" is Not zero. Its specification is pc = a ? (int *)*pc: pc + 1
 // ENT (Enter - Used to setup stack frame for a function): Setup a stack frame by 1. Store current base pointer of calling procedure in memory pointed by stack pointer to recover after this function finished. 2. Let new base pointer of a called frame be the current stack pointer. 3. adjust stack pointer to produce memory space to store local variable in later. Its specification is *--sp = (int)bp; bp = sp; sp = sp - *pc++
 // ADJ (Adjust - Used to adjust the stack pointer quickly): backward stack pointer to deaccloate the memory of frame (often used when need local memory deallocation). Its specification is sp = sp + *pc++
-// LEV (Leave - Used to clean up the stack frame and return from a function.): 
+// LEV (Leave - Used to clean up the stack frame and return from a function.): recover stack pointer, base pointer and program pointer. Its specification is sp = bp; bp = (int *)*sp++; pc = (int *)*sp++
+// LI (load int): load int from memory whose address is stored in register "a" to register "a".  Its specification is a = *(int *)a
+// LC (load char): load char from memory whose address is stored in register "a" to register "a".  Its specification is a = *(char *)a
+// SI (store int): store int in register "a" to memory pointed by address pointed by stack point. Its specification is *(int *)*sp++ = a
+// SC (store char): store char in register "a" to memory pointed by address pointed by stack point. Its specification is *(char *)*sp++ = a
+// PSH (push): put data in register "a" to stack
+// OR -> MOD: bitwise, logical and arithmetic operation between data in register "a" and element in stack top, then store result in register "a". Its specification is a = *sp++ [operation]  a 
+// OPEN -> EXIT: functions that can be used by source code. The argument of functions is stored in stack, and the return value of functions is stored in register "a"
 enum { LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LC  ,SI  ,SC  ,PSH ,
        OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,
        OPEN,READ,CLOS,PRTF,MALC,FREE,MSET,MCMP,EXIT };
@@ -167,6 +174,7 @@ void next()
   }
 }
 
+// Generate instructions of expression
 void expr(int lev)
 {
   int t, *d;
@@ -317,18 +325,24 @@ void expr(int lev)
   }
 }
 
+// Generate instructions of statements
 void stmt()
 {
   int *a, *b;
-
+  // Encounter if statement
   if (tk == If) {
     next();
     if (tk == '(') next(); else { printf("%d: open paren expected\n", line); exit(-1); }
-    expr(Assign);
+    expr(Assign); // generate instruction for if expression
     if (tk == ')') next(); else { printf("%d: close paren expected\n", line); exit(-1); }
     *++e = BZ; b = ++e;
-    stmt();
+    stmt(); // generate instruction for if block's statement
     if (tk == Else) {
+      // generate JMP instruction for previous if block
+      // after BZ instruction, write beginning address (e+3) of else block's instructions
+      // address (e+1) stores JMP instruction
+      // address (e+2) stores jump-to-address of JMP
+      // address (e+3) stores jump-to-address of BZ 
       *b = (int)(e + 3); *++e = JMP; b = ++e;
       next();
       stmt();
@@ -487,7 +501,7 @@ int main(int argc, char **argv)
           next();
         }
         *++e = ENT; *++e = i - loc;
-        // Get the instruction of the function
+        // Get the instruction of statements
         while (tk != '}') stmt();
         *++e = LEV;
         id = sym; // unwind symbol table locals
