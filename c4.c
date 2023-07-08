@@ -152,7 +152,7 @@ void next()
           if ((ival = *p++) == 'n') ival = '\n';
         }
         if (tk == '"') *data++ = ival;
-      }
+      } 
       ++p;
       if (tk == '"') ival = (int)pp; else tk = Num;
       return;
@@ -178,15 +178,14 @@ void next()
 void expr(int lev)
 {
   int t, *d;
-
   if (!tk) { printf("%d: unexpected eof in expression\n", line); exit(-1); }
-  // Encounter number token
+  // Encounter number token, which is from char, enum or number literal, load number value to register
   else if (tk == Num) { *++e = IMM; *++e = ival; next(); ty = INT; }
-  // Encounter string token
+  // Encounter string token, load string's first char's address to register
   else if (tk == '"') {
     *++e = IMM; *++e = ival; next();
     while (tk == '"') next();
-    data = (char *)((int)data + sizeof(int) & -sizeof(int)); ty = PTR; // aligin memory
+    data = (char *)((int)data + sizeof(int) & -sizeof(int)); ty = PTR; // data in the right points to next place where char of a string literal can be stored. "sizeof(int) & -sizeof(int)" algin the data to multiple of sizeof(int)
   }
   // Encounter sizeof token, sizeof(int/char/pointer)
   else if (tk == Sizeof) {
@@ -224,9 +223,11 @@ void expr(int lev)
       *++e = ((ty = d[Type]) == CHAR) ? LC : LI;
     }
   }
-  // Encounter parenthesis which has highest priority
+  // Encounter parenthesis which is used in 2 ways:
+  // 1. data type cast 2. priority of expression calculation
   else if (tk == '(') {
     next();
+    // data type cast
     if (tk == Int || tk == Char) {
       t = (tk == Int) ? INT : CHAR; next();
       while (tk == Mul) { next(); t = t + PTR; }
@@ -234,11 +235,13 @@ void expr(int lev)
       expr(Inc);
       ty = t;
     }
+    // priority of expression
     else {
       expr(Assign);
       if (tk == ')') next(); else { printf("%d: close paren expected\n", line); exit(-1); }
     }
   }
+  // Encounter *, which is used as multiplication or deference. If 
   else if (tk == Mul) {
     next(); expr(Inc);
     if (ty > INT) ty = ty - PTR; else { printf("%d: bad dereference\n", line); exit(-1); }
