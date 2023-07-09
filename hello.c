@@ -2,7 +2,8 @@
 
 int main()
 {
-  printf("hello, sun\n");
-  printf("hello, light\n");
+  printf("hello");
+  printf("12345678");
+  printf("123");
   return 0;
 }
