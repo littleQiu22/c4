@@ -175,9 +175,12 @@ void next()
 }
 
 // Generate instructions of expression
+// Format of expression: (prefix unary)? expression (postfix unary)? (binary expression)*
+// The irreducible expression: number literal, variable identifier or function identifier
 void expr(int lev)
 {
   int t, *d;
+  // first generate instruction of unary operator
   if (!tk) { printf("%d: unexpected eof in expression\n", line); exit(-1); }
   // Encounter number token, which is char, enum or number literal, load number value to register
   else if (tk == Num) { *++e = IMM; *++e = ival; next(); ty = INT; }
@@ -282,15 +285,20 @@ void expr(int lev)
   // When the first token in expr() function is not in above options, it must be bad expression
   else { printf("%d: bad expression\n", line); exit(-1); }
 
+  // second generate instruction of binary operator or postfix operator
+  // when current token is not of operator, then evalution ends
   while (tk >= lev) { // "precedence climbing" or "Top Down Operator Precedence" method
+  // Convention: in current position, the register contains left operand. expr() function will store the value of expression in register
     t = ty;
     if (tk == Assign) {
       next();
+      // Don't load left operand to register. Only push its address to stack. After right operand is loaded to register, load the value to place pointed by top stack's address 
       if (*e == LC || *e == LI) *e = PSH; else { printf("%d: bad lvalue in assignment\n", line); exit(-1); }
       expr(Assign); *++e = ((ty = t) == CHAR) ? SC : SI;
     }
     else if (tk == Cond) {
       next();
+      // Use the instruction template of branch segment
       *++e = BZ; d = ++e;
       expr(Assign);
       if (tk == ':') next(); else { printf("%d: conditional missing colon\n", line); exit(-1); }
@@ -298,8 +306,20 @@ void expr(int lev)
       expr(Cond);
       *d = (int)(e + 1);
     }
+    // short LOR operator. When current value in register is not zero, we can skip evaluted value of later expression. Instruction template:
+    // BNZ
+    // [address of place out of the branch, which is usually filled not now but in the later when the address is known]
+    // [instruction for evaluating later expression]
     else if (tk == Lor) { next(); *++e = BNZ; d = ++e; expr(Lan); *d = (int)(e + 1); ty = INT; }
+    // Short LAN operator. When current value in register is already zero, we can skip evaluted value of later expression. Instruction template:
+    // BZ
+    // [address of place out of the branch, which is usually filled not now but in the later when the address is known]
+    // [instruction for evaluating later expression]
     else if (tk == Lan) { next(); *++e = BZ;  d = ++e; expr(Or);  *d = (int)(e + 1); ty = INT; }
+    // From tk == Or to tk == Shr, from tk == Mul yo tk == Mod, the instruction template is the same:
+    // PSH (put the value in register to stack, further calculation will happen in stack and result will be stored in register)
+    // [instructions to evaluate later expression]
+    // [Calculation instruction, including OR, XOR, etc]
     else if (tk == Or)  { next(); *++e = PSH; expr(Xor); *++e = OR;  ty = INT; }
     else if (tk == Xor) { next(); *++e = PSH; expr(And); *++e = XOR; ty = INT; }
     else if (tk == And) { next(); *++e = PSH; expr(Eq);  *++e = AND; ty = INT; }
@@ -312,11 +332,13 @@ void expr(int lev)
     else if (tk == Shl) { next(); *++e = PSH; expr(Add); *++e = SHL; ty = INT; }
     else if (tk == Shr) { next(); *++e = PSH; expr(Add); *++e = SHR; ty = INT; }
     else if (tk == Add) {
+      // addition for int pointer or nested pointer is slightly different from above operator. The value of later expression should be multiplied with sizeof(int) if current expression is int pointer or nested pointer
       next(); *++e = PSH; expr(Mul);
       if ((ty = t) > PTR) { *++e = PSH; *++e = IMM; *++e = sizeof(int); *++e = MUL;  }
       *++e = ADD;
     }
     else if (tk == Sub) {
+      // subtrction for int pointer or nested pointer is further silghtly different from addition. If two operand in subtraction is of the same type, then the result should be how many base units (not bytes) between them, else the result should be similar with that of addition
       next(); *++e = PSH; expr(Mul);
       if (t > PTR && t == ty) { *++e = SUB; *++e = PSH; *++e = IMM; *++e = sizeof(int); *++e = DIV; ty = INT; }
       else if ((ty = t) > PTR) { *++e = PSH; *++e = IMM; *++e = sizeof(int); *++e = MUL; *++e = SUB; }
@@ -325,7 +347,9 @@ void expr(int lev)
     else if (tk == Mul) { next(); *++e = PSH; expr(Inc); *++e = MUL; ty = INT; }
     else if (tk == Div) { next(); *++e = PSH; expr(Inc); *++e = DIV; ty = INT; }
     else if (tk == Mod) { next(); *++e = PSH; expr(Inc); *++e = MOD; ty = INT; }
+    // postfix ++ or --
     else if (tk == Inc || tk == Dec) {
+      // execution flow: inc or dec the value and store it in right memory location, then dec or inc the value
       if (*e == LC) { *e = PSH; *++e = LC; }
       else if (*e == LI) { *e = PSH; *++e = LI; }
       else { printf("%d: bad lvalue in post-increment\n", line); exit(-1); }
@@ -336,12 +360,15 @@ void expr(int lev)
       *++e = (tk == Inc) ? SUB : ADD;
       next();
     }
+    // square bracket deferences pointer
     else if (tk == Brak) {
+      // first calculate and store address to register 
       next(); *++e = PSH; expr(Assign);
       if (tk == ']') next(); else { printf("%d: close bracket expected\n", line); exit(-1); }
       if (t > PTR) { *++e = PSH; *++e = IMM; *++e = sizeof(int); *++e = MUL;  }
       else if (t < PTR) { printf("%d: pointer type expected\n", line); exit(-1); }
       *++e = ADD;
+      // deference address
       *++e = ((ty = t - PTR) == CHAR) ? LC : LI;
     }
     else { printf("%d: compiler error tk=%d\n", line, tk); exit(-1); }
@@ -358,6 +385,13 @@ void stmt()
     if (tk == '(') next(); else { printf("%d: open paren expected\n", line); exit(-1); }
     expr(Assign); // generate instruction for if expression
     if (tk == ')') next(); else { printf("%d: close paren expected\n", line); exit(-1); }
+    // To write a branch segment, the instruction template is:
+    // BZ
+    // [address of negative branch, which is usually filled not now but in the later when the address is known]
+    // [instruction of positive branch]
+    // JMP
+    // [address of place out of the branch, which is usually filled not now but in the later when the address is known]
+    // [instruction of negative branch]
     *++e = BZ; b = ++e;
     stmt(); // generate instruction for if block's statement
     if (tk == Else) {
