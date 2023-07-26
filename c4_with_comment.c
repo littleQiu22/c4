@@ -592,8 +592,8 @@ int main(int argc, char **argv)
   // Setup stack from high address to low address 
   bp = sp = (int *)((int)sp + poolsz);
   *--sp = EXIT; // call exit if main returns
-  *--sp = PSH; t = sp;
-  *--sp = argc;
+  *--sp = PSH; t = sp; // push return value of script's main function to stack, waits for EXIT to execute and then print the return value. The return address after script's main function is current sp, which contains instruction PUSH, after which is EXIT instruction
+  *--sp = argc; // put arguments to stack
   *--sp = (int)argv;
   *--sp = (int)t;
 
